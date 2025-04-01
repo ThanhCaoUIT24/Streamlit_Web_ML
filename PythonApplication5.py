@@ -291,24 +291,22 @@ def load_data(uploaded_file):
 def preprocess_data(df, target_column, selected_features):
     """Tiền xử lý dữ liệu: chọn cột, xử lý NaN, one-hot encode, scale."""
     if not selected_features:
-        return "Vui lòng chọn ít nhất một feature.", None, None, None, None, None
+        return "Vui lòng chọn ít nhất một feature.", None, None, None, None, None, None, None # Thêm None cho imputer và features
     if not target_column:
-         return "Vui lòng chọn cột target.", None, None, None, None, None
+         return "Vui lòng chọn cột target.", None, None, None, None, None, None, None
     if target_column not in df.columns:
-        return f"Cột target '{target_column}' không tồn tại trong dữ liệu.", None, None, None, None, None
+        return f"Cột target '{target_column}' không tồn tại trong dữ liệu.", None, None, None, None, None, None, None
     if not all(feature in df.columns for feature in selected_features):
          missing_features = [f for f in selected_features if f not in df.columns]
-         return f"Các feature sau không tồn tại: {', '.join(missing_features)}.", None, None, None, None, None
+         return f"Các feature sau không tồn tại: {', '.join(missing_features)}.", None, None, None, None, None, None, None
 
     df_subset = df[selected_features + [target_column]].copy()
 
     # Kiểm tra xem target có phải dạng số không (nếu dùng cho hồi quy)
     if df_subset[target_column].dtype not in [np.number]:
-        # Cho phép nếu target là category đã được one-hot trước đó (ít phổ biến)
-        # Nhưng nếu không thì báo lỗi vì các model hồi quy yêu cầu target số
-        is_binary_after_potential_get_dummies = False # Logic kiểm tra phức tạp hơn nếu cần
+        is_binary_after_potential_get_dummies = False
         if not is_binary_after_potential_get_dummies:
-            return f"Cột target '{target_column}' phải là dạng số cho mô hình hồi quy.", None, None, None, None, None
+            return f"Cột target '{target_column}' phải là dạng số cho mô hình hồi quy.", None, None, None, None, None, None, None
 
 
     numeric_cols = df_subset.select_dtypes(include=np.number).columns.tolist()
@@ -321,59 +319,70 @@ def preprocess_data(df, target_column, selected_features):
     # Xử lý NaN cho target trước tiên
     df_subset.dropna(subset=[target_column], inplace=True)
     if df_subset.empty:
-        return "Không còn dữ liệu sau khi loại bỏ NaN ở cột target.", None, None, None, None, None
+        return "Không còn dữ liệu sau khi loại bỏ NaN ở cột target.", None, None, None, None, None, None, None
 
-    # Xử lý NaN cho features
-    numeric_features_to_impute = [col for col in original_numeric_features if df_subset[col].isnull().any()]
-    categorical_features_to_impute = [col for col in original_categorical_features if df_subset[col].isnull().any()]
-
+    # --- SỬA LỖI IMUTER ---
+    # Khởi tạo imputers
     numeric_imputer = SimpleImputer(strategy='mean')
-    if numeric_features_to_impute:
-        df_subset[numeric_features_to_impute] = numeric_imputer.fit_transform(df_subset[numeric_features_to_impute])
-
     categorical_imputer = SimpleImputer(strategy='most_frequent')
-    if categorical_features_to_impute:
-        df_subset[categorical_features_to_impute] = categorical_imputer.fit_transform(df_subset[categorical_features_to_impute])
+
+    # FIT imputer LUÔN LUÔN trên các cột đã chọn (nếu có) để đảm bảo nó được fitted
+    # Ngay cả khi không có NaN trong tập dữ liệu hiện tại, nó cần được fit để sử dụng sau này
+    if original_numeric_features:
+        numeric_imputer.fit(df_subset[original_numeric_features])
+        # Chỉ TRANSFORM nếu thực sự có NaN
+        if df_subset[original_numeric_features].isnull().any().any():
+            df_subset[original_numeric_features] = numeric_imputer.transform(df_subset[original_numeric_features])
+    else:
+        # Nếu không có cột số nào được chọn, fit imputer trên một mảng trống để tránh lỗi NotFittedError
+        # Mặc dù nó sẽ không làm gì, nhưng nó sẽ ở trạng thái "fitted"
+        numeric_imputer.fit(np.empty((0, 0)))
+
+
+    if original_categorical_features:
+        categorical_imputer.fit(df_subset[original_categorical_features])
+        # Chỉ TRANSFORM nếu thực sự có NaN
+        if df_subset[original_categorical_features].isnull().any().any():
+            df_subset[original_categorical_features] = categorical_imputer.transform(df_subset[original_categorical_features])
+    else:
+         # Fit trên mảng trống nếu không có cột category
+        categorical_imputer.fit(np.empty((0, 0), dtype=object))
+    # --- KẾT THÚC SỬA LỖI ---
+
 
     # One-Hot Encoding cho các cột category gốc ĐÃ CHỌN
     df_processed = pd.get_dummies(df_subset, columns=original_categorical_features, drop_first=True)
 
     # Tách X, y sau khi encoding
-    # Cần xác định lại tên cột target nếu nó là category và đã bị get_dummies
     if target_column in original_categorical_features:
-        # Trường hợp target là category (ít dùng cho hồi quy chuẩn)
         st.warning(f"Cột target '{target_column}' là dạng category. Đang cố gắng tìm cột sau one-hot encoding.")
-        # Tìm các cột có thể là target sau khi one-hot (ví dụ: col_valueA, col_valueB)
         possible_target_cols = [col for col in df_processed.columns if col.startswith(target_column + "_")]
         if len(possible_target_cols) > 0:
-             # Tạm thời chỉ lấy cột đầu tiên, hoặc cần logic chọn cụ thể
              target_column_processed = possible_target_cols[0]
              st.info(f"Sử dụng '{target_column_processed}' làm target sau encoding.")
              y = df_processed[target_column_processed]
-             # Loại bỏ tất cả các cột có thể là target khỏi X
              cols_to_drop = [target_column] + possible_target_cols
              X = df_processed.drop(columns=cols_to_drop, errors='ignore')
         else:
-             return f"Không thể xác định cột target '{target_column}' sau khi mã hóa.", None, None, None, None, None
+             return f"Không thể xác định cột target '{target_column}' sau khi mã hóa.", None, None, None, None, None, None, None
     elif target_column in df_processed.columns:
-        # Trường hợp target là số (phổ biến)
         y = df_processed[target_column]
         X = df_processed.drop(target_column, axis=1)
     else:
-         return f"Không tìm thấy cột target '{target_column}' trong dữ liệu đã xử lý.", None, None, None, None, None
+         return f"Không tìm thấy cột target '{target_column}' trong dữ liệu đã xử lý.", None, None, None, None, None, None, None
 
 
     feature_names_processed = X.columns.tolist() # Lấy tên các cột feature sau khi xử lý
 
-    # Kiểm tra nếu không còn feature nào
     if X.empty or len(feature_names_processed) == 0:
-        return "Không còn feature nào sau khi tiền xử lý.", None, None, None, None, None
+        # Trả về đủ các giá trị None
+        return "Không còn feature nào sau khi tiền xử lý.", None, None, None, numeric_imputer, categorical_imputer, original_numeric_features, original_categorical_features
 
     # Chuẩn hóa chỉ các cột features (X)
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Trả về thêm cả imputer và các cột đã được get_dummies để dùng cho dự đoán
+    # Trả về các đối tượng đã được FIT (scaler, imputers)
     return X_scaled, y, feature_names_processed, scaler, numeric_imputer, categorical_imputer, original_numeric_features, original_categorical_features
 
 
@@ -526,7 +535,7 @@ with tab1:
                 buffer = io.StringIO()
                 df.info(buf=buffer)
                 s = buffer.getvalue()
-                st.text(s)
+                st.code(s, language=None) # language=None để không cố highlight cú pháp
         with col_info2:
             with st.expander("🔢 Thống kê mô tả (Số)", expanded=False):
                 try:
@@ -760,23 +769,30 @@ with tab2:
                     st.warning("⚠️ Vui lòng chọn Target.")
                 else:
                     with st.spinner("⚙️ Đang tiền xử lý dữ liệu..."):
-                        # Gọi hàm tiền xử lý
+                        # Gọi hàm tiền xử lý đã sửa
                         preprocess_result = preprocess_data(df.copy(), selected_target, selected_features_original)
 
                         # Kiểm tra kết quả tiền xử lý
                         if isinstance(preprocess_result[0], str): # Nếu phần tử đầu là string -> lỗi
                             st.session_state.preprocessing_error = preprocess_result[0]
                             st.error(f"Lỗi tiền xử lý: {st.session_state.preprocessing_error}")
+                             # Đảm bảo reset các state khác nếu lỗi xảy ra ở đây
+                            st.session_state.scaler = None
+                            st.session_state.numeric_imputer = None
+                            st.session_state.categorical_imputer = None
+                            st.session_state.feature_names_processed = None
+                            st.session_state.numeric_cols_original = None
+                            st.session_state.categorical_cols_original = None
                         else:
                             # Giải nén kết quả thành công
                             X, y, feature_names_proc, scaler, num_imputer, cat_imputer, num_orig, cat_orig = preprocess_result
                             st.session_state.preprocessing_error = None # Không có lỗi
 
-                            # Lưu các thành phần cần thiết cho dự đoán
+                            # Lưu các thành phần đã FIT vào session_state
                             st.session_state.scaler = scaler
-                            st.session_state.numeric_imputer = num_imputer
-                            st.session_state.categorical_imputer = cat_imputer
-                            st.session_state.feature_names_processed = feature_names_proc # Tên cột sau dummies/scaling
+                            st.session_state.numeric_imputer = num_imputer # Đã được fit
+                            st.session_state.categorical_imputer = cat_imputer # Đã được fit
+                            st.session_state.feature_names_processed = feature_names_proc
                             st.session_state.target_column = selected_target
                             st.session_state.numeric_cols_original = num_orig
                             st.session_state.categorical_cols_original = cat_orig
