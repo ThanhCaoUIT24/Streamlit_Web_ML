@@ -1,9 +1,7 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
-# import matplotlib.pyplot as plt # Không cần nữa nếu dùng Plotly hoàn toàn
-# import seaborn as sns # Không cần nữa nếu dùng Plotly hoàn toàn
-import plotly.express as px # Import Plotly Express
+import plotly.express as px
 import plotly.graph_objects as go # Import để tạo heatmap Plotly
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
@@ -118,28 +116,28 @@ custom_css = """
 
     /* --- Tabs --- */
     .stTabs [data-baseweb="tab-list"] {
-		gap: 30px; /* Khoảng cách lớn hơn giữa các tab */
+        gap: 30px; /* Khoảng cách lớn hơn giữa các tab */
         justify-content: center; /* Căn giữa các tab */
         border-bottom: 2px solid rgba(255,255,255,0.2); /* Đường kẻ dưới tab list */
-	}
-	.stTabs [data-baseweb="tab"] {
-		height: 60px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 60px;
         white-space: pre-wrap;
-		background-color: transparent;
-		border-radius: 10px 10px 0 0; /* Bo góc trên */
-		gap: 10px;
-		padding: 15px 25px;
+        background-color: transparent;
+        border-radius: 10px 10px 0 0; /* Bo góc trên */
+        gap: 10px;
+        padding: 15px 25px;
         color: rgba(255, 255, 255, 0.7); /* Màu chữ tab không active nhạt hơn */
         font-weight: 600;
         font-size: 1.1em;
         transition: all 0.3s ease;
         border: none; /* Bỏ viền mặc định */
-	}
-	.stTabs [aria-selected="true"] {
-  		background-image: linear-gradient(to top, rgba(255,255,255,0.15), rgba(255,255,255,0.0)); /* Gradient nhẹ cho tab active */
+    }
+    .stTabs [aria-selected="true"] {
+        background-image: linear-gradient(to top, rgba(255,255,255,0.15), rgba(255,255,255,0.0)); /* Gradient nhẹ cho tab active */
         color: white !important; /* Màu chữ trắng rõ ràng */
         border-bottom: 3px solid #FFFFFF; /* Đường kẻ dưới tab active */
-	}
+    }
     .stTabs [data-baseweb="tab"]:hover {
         background-color: rgba(255, 255, 255, 0.1);
         color: white;
@@ -163,7 +161,7 @@ custom_css = """
         border-radius: 10px 10px 0 0;
     }
      .stExpander header:hover {
-          background-color: rgba(0, 0, 0, 0.2);
+         background-color: rgba(0, 0, 0, 0.2);
      }
     .stExpander > div[role="button"] > div > svg {
          fill: #FFFFFF; /* Màu icon mũi tên trắng */
@@ -229,7 +227,7 @@ custom_css = """
 
      /* --- Sidebar (nếu dùng) --- */
      section[data-testid="stSidebar"] > div:first-child {
-          background-image: linear-gradient(to bottom, #485DA6, #00a1ba); /* Gradient cho sidebar */
+         background-image: linear-gradient(to bottom, #485DA6, #00a1ba); /* Gradient cho sidebar */
      }
 
 
@@ -238,187 +236,262 @@ custom_css = """
 st.markdown(custom_css, unsafe_allow_html=True)
 
 # --- Các hàm trợ giúp (Giữ nguyên logic, chỉ thay đổi plot) ---
-@st.cache_data
+@st.cache_data # Sử dụng cache_data cho data loading
 def load_data(uploaded_file):
+    """Tải dữ liệu từ tệp CSV được tải lên."""
     try:
         df = pd.read_csv(uploaded_file)
         return df
     except Exception as e:
-        st.error(f"Lỗi khi đọc tệp CSV: {e}")
-        return None
+        # Trả về lỗi để có thể hiển thị trong luồng chính
+        return f"Lỗi khi đọc tệp CSV: {e}"
 
-# Hàm tiền xử lý (Giữ nguyên logic)
+# Hàm tiền xử lý (Giữ nguyên logic cốt lõi)
 def preprocess_data(df, target_column, selected_features):
+    """Tiền xử lý dữ liệu: chọn cột, xử lý NaN, one-hot encode, scale."""
+    if not selected_features:
+        return "Vui lòng chọn ít nhất một feature.", None, None, None, None, None
+    if not target_column:
+         return "Vui lòng chọn cột target.", None, None, None, None, None
+    if target_column not in df.columns:
+        return f"Cột target '{target_column}' không tồn tại trong dữ liệu.", None, None, None, None, None
+    if not all(feature in df.columns for feature in selected_features):
+         missing_features = [f for f in selected_features if f not in df.columns]
+         return f"Các feature sau không tồn tại: {', '.join(missing_features)}.", None, None, None, None, None
+
     df_subset = df[selected_features + [target_column]].copy()
+
+    # Kiểm tra xem target có phải dạng số không (nếu dùng cho hồi quy)
+    if df_subset[target_column].dtype not in [np.number]:
+        # Cho phép nếu target là category đã được one-hot trước đó (ít phổ biến)
+        # Nhưng nếu không thì báo lỗi vì các model hồi quy yêu cầu target số
+        is_binary_after_potential_get_dummies = False # Logic kiểm tra phức tạp hơn nếu cần
+        if not is_binary_after_potential_get_dummies:
+            return f"Cột target '{target_column}' phải là dạng số cho mô hình hồi quy.", None, None, None, None, None
+
 
     numeric_cols = df_subset.select_dtypes(include=np.number).columns.tolist()
     categorical_cols = df_subset.select_dtypes(exclude=np.number).columns.tolist()
-    original_numeric_features = [col for col in numeric_cols if col != target_column]
-    original_categorical_features = categorical_cols.copy()
 
-    # Xử lý NaN
-    if target_column in numeric_cols:
-        numeric_cols.remove(target_column)
-        df_subset.dropna(subset=[target_column], inplace=True)
-    else:
-        if target_column in categorical_cols:
-             categorical_cols.remove(target_column)
-             df_subset.dropna(subset=[target_column], inplace=True)
+    # Xác định cột gốc trước khi xử lý NaN
+    original_numeric_features = [col for col in numeric_cols if col != target_column and col in selected_features]
+    original_categorical_features = [col for col in categorical_cols if col != target_column and col in selected_features] # Chỉ lấy các cột được chọn
 
+    # Xử lý NaN cho target trước tiên
+    df_subset.dropna(subset=[target_column], inplace=True)
+    if df_subset.empty:
+        return "Không còn dữ liệu sau khi loại bỏ NaN ở cột target.", None, None, None, None, None
 
-    if numeric_cols:
-        num_imputer = SimpleImputer(strategy='mean')
-        df_subset[numeric_cols] = num_imputer.fit_transform(df_subset[numeric_cols])
+    # Xử lý NaN cho features
+    numeric_features_to_impute = [col for col in original_numeric_features if df_subset[col].isnull().any()]
+    categorical_features_to_impute = [col for col in original_categorical_features if df_subset[col].isnull().any()]
 
-    if categorical_cols:
-        cat_imputer = SimpleImputer(strategy='most_frequent')
-        df_subset[categorical_cols] = cat_imputer.fit_transform(df_subset[categorical_cols])
+    numeric_imputer = SimpleImputer(strategy='mean')
+    if numeric_features_to_impute:
+        df_subset[numeric_features_to_impute] = numeric_imputer.fit_transform(df_subset[numeric_features_to_impute])
 
-    # One-Hot Encoding
-    df_processed = pd.get_dummies(df_subset, columns=categorical_cols, drop_first=True)
+    categorical_imputer = SimpleImputer(strategy='most_frequent')
+    if categorical_features_to_impute:
+        df_subset[categorical_features_to_impute] = categorical_imputer.fit_transform(df_subset[categorical_features_to_impute])
 
-    # Tách X, y
-    if target_column not in df_processed.columns:
-         possible_target_cols = [col for col in df_processed.columns if col.startswith(target_column)]
-         if len(possible_target_cols) == 1:
+    # One-Hot Encoding cho các cột category gốc ĐÃ CHỌN
+    df_processed = pd.get_dummies(df_subset, columns=original_categorical_features, drop_first=True)
+
+    # Tách X, y sau khi encoding
+    # Cần xác định lại tên cột target nếu nó là category và đã bị get_dummies
+    if target_column in original_categorical_features:
+        # Trường hợp target là category (ít dùng cho hồi quy chuẩn)
+        st.warning(f"Cột target '{target_column}' là dạng category. Đang cố gắng tìm cột sau one-hot encoding.")
+        # Tìm các cột có thể là target sau khi one-hot (ví dụ: col_valueA, col_valueB)
+        possible_target_cols = [col for col in df_processed.columns if col.startswith(target_column + "_")]
+        if len(possible_target_cols) > 0:
+             # Tạm thời chỉ lấy cột đầu tiên, hoặc cần logic chọn cụ thể
              target_column_processed = possible_target_cols[0]
+             st.info(f"Sử dụng '{target_column_processed}' làm target sau encoding.")
              y = df_processed[target_column_processed]
-             X = df_processed.drop(target_column_processed, axis=1)
-         else:
-              st.error("Không thể xác định cột target sau khi mã hóa.")
-              return None, None, None, None, None, None
-    else:
+             # Loại bỏ tất cả các cột có thể là target khỏi X
+             cols_to_drop = [target_column] + possible_target_cols
+             X = df_processed.drop(columns=cols_to_drop, errors='ignore')
+        else:
+             return f"Không thể xác định cột target '{target_column}' sau khi mã hóa.", None, None, None, None, None
+    elif target_column in df_processed.columns:
+        # Trường hợp target là số (phổ biến)
         y = df_processed[target_column]
         X = df_processed.drop(target_column, axis=1)
+    else:
+         return f"Không tìm thấy cột target '{target_column}' trong dữ liệu đã xử lý.", None, None, None, None, None
 
 
-    feature_names_processed = X.columns.tolist()
+    feature_names_processed = X.columns.tolist() # Lấy tên các cột feature sau khi xử lý
 
-    # Chuẩn hóa
+    # Kiểm tra nếu không còn feature nào
+    if X.empty or len(feature_names_processed) == 0:
+        return "Không còn feature nào sau khi tiền xử lý.", None, None, None, None, None
+
+    # Chuẩn hóa chỉ các cột features (X)
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    return X_scaled, y, feature_names_processed, scaler, original_numeric_features, original_categorical_features
+    # Trả về thêm cả imputer và các cột đã được get_dummies để dùng cho dự đoán
+    return X_scaled, y, feature_names_processed, scaler, numeric_imputer, categorical_imputer, original_numeric_features, original_categorical_features
 
 
 # Hàm huấn luyện (Thêm progress bar)
 def train_model(X_train, y_train, model_name, params):
+    """Huấn luyện mô hình đã chọn với các tham số."""
     model = None
-    if model_name == "Linear Regression":
-        model = LinearRegression()
-    elif model_name == "Random Forest Regressor":
-        model = RandomForestRegressor(
-            n_estimators=params.get('n_estimators', 100),
-            max_depth=params.get('max_depth', None),
-            random_state=42,
-            n_jobs=-1
-        )
-    elif model_name == "Support Vector Regressor (SVR)":
-        model = SVR(
-            C=params.get('C', 1.0),
-            epsilon=params.get('epsilon', 0.1),
-            kernel=params.get('kernel', 'rbf')
-        )
-    else:
-        st.error("Mô hình không hợp lệ!")
-        return None
+    model_display_name = model_name # Giữ tên gốc để hiển thị
 
     try:
+        if model_name == "Linear Regression":
+            model = LinearRegression()
+        elif model_name == "Random Forest Regressor":
+            # Lấy tham số với giá trị mặc định an toàn
+            n_estimators = params.get('n_estimators', 100)
+            max_depth = params.get('max_depth', None)
+            model = RandomForestRegressor(
+                n_estimators=n_estimators if n_estimators > 0 else 100, # Đảm bảo > 0
+                max_depth=max_depth if max_depth is None or max_depth >= 0 else None, # None hoặc >= 0
+                random_state=42,
+                n_jobs=-1
+            )
+        elif model_name == "Support Vector Regressor (SVR)":
+             # Lấy tham số với giá trị mặc định an toàn
+            C = params.get('C', 1.0)
+            epsilon = params.get('epsilon', 0.1)
+            kernel = params.get('kernel', 'rbf')
+            model = SVR(
+                C=C if C > 0 else 1.0, # Đảm bảo > 0
+                epsilon=epsilon if epsilon > 0 else 0.1, # Đảm bảo > 0
+                kernel=kernel if kernel in ['rbf', 'linear', 'poly', 'sigmoid'] else 'rbf'
+            )
+        else:
+            st.error(f"Tên mô hình không hợp lệ: {model_name}")
+            return None, "Mô hình không hợp lệ"
+
         # --- Thêm Progress Bar ---
         progress_bar = st.progress(0)
         status_text = st.empty()
-        status_text.text("Bắt đầu huấn luyện...")
+        status_text.text(f"⏳ Bắt đầu huấn luyện {model_display_name}...")
 
-        # Giả lập quá trình huấn luyện (thay bằng model.fit thật)
-        # model.fit(X_train, y_train) # Thay thế dòng này bằng vòng lặp nếu muốn cập nhật progress bar chi tiết hơn
-        # Hoặc đơn giản là chạy fit và cập nhật progress sau khi xong
         start_time = time.time()
         model.fit(X_train, y_train)
         end_time = time.time()
+        training_time = end_time - start_time
 
         # Cập nhật progress bar và status
         for i in range(100):
-            time.sleep(0.01) # Giả lập thời gian xử lý nhỏ
+            time.sleep(0.005) # Giả lập thời gian xử lý nhỏ
             progress_bar.progress(i + 1)
-        status_text.success(f"Hoàn thành huấn luyện trong {end_time - start_time:.2f} giây!")
+
+        status_text.success(f"✅ Hoàn thành huấn luyện {model_display_name} trong {training_time:.2f} giây!")
         time.sleep(1) # Chờ 1 giây để user thấy thông báo success
         status_text.empty() # Xóa thông báo text
         progress_bar.empty() # Xóa progress bar
 
-        return model
+        return model, None # Trả về model và không có lỗi
+
     except Exception as e:
-        st.error(f"Lỗi trong quá trình huấn luyện mô hình: {e}")
-        if 'progress_bar' in locals(): progress_bar.empty() # Đảm bảo xóa progress bar nếu lỗi
-        if 'status_text' in locals(): status_text.empty()
-        return None
+        error_message = f"Lỗi trong quá trình huấn luyện mô hình {model_display_name}: {e}"
+        st.error(error_message)
+        # Đảm bảo xóa progress bar và status text nếu lỗi xảy ra giữa chừng
+        if 'progress_bar' in locals() and progress_bar is not None: progress_bar.empty()
+        if 'status_text' in locals() and status_text is not None: status_text.empty()
+        return None, error_message # Trả về không có model và thông báo lỗi
 
-
-# --- Khởi tạo Session State (Giữ nguyên) ---
+# --- Khởi tạo Session State (Thêm các mục cần thiết) ---
 if 'model' not in st.session_state: st.session_state.model = None
 if 'scaler' not in st.session_state: st.session_state.scaler = None
-if 'feature_names' not in st.session_state: st.session_state.feature_names = None
+if 'numeric_imputer' not in st.session_state: st.session_state.numeric_imputer = None
+if 'categorical_imputer' not in st.session_state: st.session_state.categorical_imputer = None
+if 'feature_names_processed' not in st.session_state: st.session_state.feature_names_processed = None # Tên feature SAU tiền xử lý
 if 'target_column' not in st.session_state: st.session_state.target_column = None
-if 'numeric_cols_original' not in st.session_state: st.session_state.numeric_cols_original = None
-if 'categorical_cols_original' not in st.session_state: st.session_state.categorical_cols_original = None
+if 'numeric_cols_original' not in st.session_state: st.session_state.numeric_cols_original = None # Tên feature số GỐC
+if 'categorical_cols_original' not in st.session_state: st.session_state.categorical_cols_original = None # Tên feature category GỐC
 if 'df_loaded' not in st.session_state: st.session_state.df_loaded = False
-if 'df' not in st.session_state: st.session_state.df = None
+if 'df' not in st.session_state: st.session_state.df = None # DataFrame gốc
 if 'uploaded_filename' not in st.session_state: st.session_state.uploaded_filename = None
+if 'preprocessing_error' not in st.session_state: st.session_state.preprocessing_error = None # Lưu lỗi tiền xử lý
+if 'training_error' not in st.session_state: st.session_state.training_error = None # Lưu lỗi huấn luyện
+if 'last_prediction' not in st.session_state: st.session_state.last_prediction = None # Lưu kết quả dự đoán cuối
 
 # --- Giao diện người dùng với Tabs và Style Mới ---
 st.title("🚀 Ứng dụng Machine Learning Siêu Cấp Vip Pro 🚀")
 st.markdown("---", unsafe_allow_html=True) # Dùng HTML để đường kẻ có thể được style nếu muốn
 
+# Loại bỏ thẻ <i> khỏi tên tab, có thể dùng emoji thay thế
 tab1, tab2, tab3 = st.tabs([
-    "**<i class='fas fa-upload'></i> Tải & Khám phá Dữ liệu**",
-    "**<i class='fas fa-cogs'></i> Huấn luyện Mô hình**",
-    "**<i class='fas fa-magic-wand-sparkles'></i> Dự đoán Kết quả**"
+    "**📊 Tải & Khám phá Dữ liệu**", # Thay icon bằng emoji hoặc bỏ đi
+    "**⚙️ Huấn luyện Mô hình**",
+    "**✨ Dự đoán Kết quả**"
 ])
 
 # == Tab 1: Tải dữ liệu và EDA ==
 with tab1:
-    # st.header("1. Tải lên tập dữ liệu (.csv)")
-    upload_container = st.container() # Container để style nếu cần
+    upload_container = st.container()
     with upload_container:
-        st.markdown("### <i class='fas fa-file-csv'></i> 1. Tải lên tệp CSV của bạn")
+        st.markdown("### <i class='fas fa-file-csv'></i> 1. Tải lên tệp CSV của bạn", unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
             "Kéo thả hoặc chọn tệp...",
-            type="csv",
+            type="csv", # Chỉ chấp nhận file .csv
             label_visibility="collapsed"
         )
 
     if uploaded_file is not None:
+        # Chỉ load lại nếu chưa load hoặc tên file khác
         if not st.session_state.df_loaded or st.session_state.uploaded_filename != uploaded_file.name:
-            with st.spinner("🔄 Đang tải và xử lý tệp..."):
-                st.session_state.df = load_data(uploaded_file)
-                st.session_state.df_loaded = True
+            with st.spinner("🔄 Đang tải và kiểm tra tệp..."):
+                # Reset trạng thái trước khi load file mới
+                st.session_state.df = None
+                st.session_state.df_loaded = False
+                st.session_state.model = None
+                st.session_state.scaler = None
+                st.session_state.numeric_imputer = None
+                st.session_state.categorical_imputer = None
+                st.session_state.feature_names_processed = None
+                st.session_state.numeric_cols_original = None
+                st.session_state.categorical_cols_original = None
+                st.session_state.target_column = None
+                st.session_state.preprocessing_error = None
+                st.session_state.training_error = None
+                st.session_state.last_prediction = None
                 st.session_state.uploaded_filename = uploaded_file.name
-                st.session_state.model = None # Reset model khi load file mới
-            st.rerun()
 
+                result = load_data(uploaded_file)
+                if isinstance(result, pd.DataFrame):
+                    st.session_state.df = result
+                    st.session_state.df_loaded = True
+                    st.success(f"✅ Đã tải thành công tệp: **{st.session_state.uploaded_filename}**")
+                    # Không cần rerun ở đây nữa, sẽ tự chạy xuống dưới
+                else: # Nếu load_data trả về lỗi (string)
+                    st.error(result) # Hiển thị lỗi load_data
+                    st.session_state.uploaded_filename = None # Reset tên file nếu lỗi
+                    st.session_state.df_loaded = False
+            # st.rerun() # Không cần rerun, để code chạy tiếp xuống phần EDA nếu thành công
+
+    # Chỉ hiển thị EDA nếu đã load thành công
     if st.session_state.df_loaded and st.session_state.df is not None:
-        st.success(f"✅ Đã tải thành công tệp: **{st.session_state.uploaded_filename}**")
         df = st.session_state.df
 
-        st.markdown("### <i class='fas fa-search'></i> 2. Khám phá Dữ liệu (EDA)")
+        st.markdown("### <i class='fas fa-search'></i> 2. Khám phá Dữ liệu (EDA)", unsafe_allow_html=True)
 
         with st.expander("📊 Xem trước dữ liệu (5 dòng đầu)", expanded=False):
             st.dataframe(df.head())
 
-        # Sử dụng columns để bố trí thông tin
         col_info1, col_info2, col_info3 = st.columns([1,1,1])
         with col_info1:
             with st.expander("ℹ️ Thông tin chung", expanded=False):
-                 st.write(f"**Dòng:** {df.shape[0]}, **Cột:** {df.shape[1]}")
-                 buffer = io.StringIO()
-                 df.info(buf=buffer)
-                 s = buffer.getvalue()
-                 st.text(s)
+                st.write(f"**Dòng:** {df.shape[0]}, **Cột:** {df.shape[1]}")
+                buffer = io.StringIO()
+                df.info(buf=buffer)
+                s = buffer.getvalue()
+                st.text(s)
         with col_info2:
-            with st.expander("🔢 Thống kê mô tả", expanded=False):
-                 try:
-                      st.dataframe(df.describe())
-                 except Exception:
-                      st.info("Không có cột số.")
+            with st.expander("🔢 Thống kê mô tả (Số)", expanded=False):
+                try:
+                    st.dataframe(df.describe(include=np.number))
+                except Exception:
+                    st.info("Không có cột số.")
         with col_info3:
             with st.expander("❓ Giá trị thiếu (NaN)", expanded=False):
                 missing_values = df.isnull().sum()
@@ -430,120 +503,142 @@ with tab1:
                 else:
                     st.success("🎉 Không có giá trị thiếu!")
 
-        st.markdown("### <i class='fas fa-chart-bar'></i> 3. Trực quan hóa Dữ liệu")
+        st.markdown("### <i class='fas fa-chart-bar'></i> 3. Trực quan hóa Dữ liệu", unsafe_allow_html=True)
         numeric_columns = df.select_dtypes(include=np.number).columns.tolist()
+        categorical_columns = df.select_dtypes(exclude=np.number).columns.tolist()
 
-        if not numeric_columns:
-            st.warning("⚠️ Không có cột dữ liệu dạng số để vẽ biểu đồ.")
+        if not numeric_columns and not categorical_columns:
+             st.warning("⚠️ Không có cột dữ liệu nào để vẽ biểu đồ.")
         else:
-            # Sử dụng columns cho selectbox gọn hơn
-            col_plot_select, col_plot_display = st.columns([0.3, 0.7])
+            col_plot_select, col_plot_display = st.columns([0.3, 0.7], gap="large")
 
             with col_plot_select:
-                plot_type = st.selectbox(
-                    "Chọn loại biểu đồ:",
-                    ["Histogram", "Box Plot", "Scatter Plot", "Heatmap Tương quan"],
-                    key="plot_type_select"
-                )
+                plot_options = []
+                if numeric_columns:
+                    plot_options.extend(["Histogram", "Box Plot", "Heatmap Tương quan"])
+                if len(numeric_columns) >= 2:
+                     plot_options.append("Scatter Plot")
+                # Thêm các plot cho category nếu muốn (ví dụ: Count Plot)
+                # if categorical_columns:
+                #     plot_options.append("Count Plot")
 
-                # Chọn cột cho từng loại plot
-                selected_col_hist_box = None
-                selected_col_scatter_x = None
-                selected_col_scatter_y = None
-                selected_col_scatter_hue = None
+                if not plot_options:
+                     st.info("Không đủ loại cột để vẽ biểu đồ.")
+                else:
+                    plot_type = st.selectbox(
+                        "Chọn loại biểu đồ:",
+                        plot_options,
+                        key="plot_type_select"
+                    )
 
-                if plot_type in ["Histogram", "Box Plot"]:
-                    selected_col_hist_box = st.selectbox("Chọn cột số:", numeric_columns, key="hist_box_col")
-                elif plot_type == "Scatter Plot":
-                    selected_col_scatter_x = st.selectbox("Chọn cột X:", numeric_columns, key="scatter_x")
-                    col2_options = [col for col in numeric_columns if col != selected_col_scatter_x]
-                    if len(numeric_columns) > 1 and col2_options:
-                         selected_col_scatter_y = st.selectbox("Chọn cột Y:", col2_options, key="scatter_y")
-                         hue_options = [None] + df.select_dtypes(exclude=np.number).columns.tolist()
-                         selected_col_scatter_hue = st.selectbox("Phân màu theo (Tùy chọn):", hue_options, key="scatter_hue")
-                    else:
-                        st.warning("Cần ít nhất 2 cột số khác nhau.")
-                # Heatmap không cần chọn cột thêm
+                    # Chọn cột cho từng loại plot
+                    selected_col_hist_box = None
+                    selected_col_scatter_x = None
+                    selected_col_scatter_y = None
+                    selected_col_scatter_hue = None
+
+                    if plot_type in ["Histogram", "Box Plot"] and numeric_columns:
+                        selected_col_hist_box = st.selectbox("Chọn cột số:", numeric_columns, key="hist_box_col")
+                    elif plot_type == "Scatter Plot" and len(numeric_columns) >= 2:
+                        selected_col_scatter_x = st.selectbox("Chọn cột X:", numeric_columns, key="scatter_x", index=0)
+                        col2_options = [col for col in numeric_columns if col != selected_col_scatter_x]
+                        if col2_options: # Đảm bảo có cột Y để chọn
+                             selected_col_scatter_y = st.selectbox("Chọn cột Y:", col2_options, key="scatter_y", index=min(1, len(col2_options)-1))
+                             # Cho phép chọn cột category hoặc numeric để tô màu
+                             hue_options = [None] + numeric_columns + categorical_columns
+                             # Loại bỏ các cột đã chọn cho X, Y khỏi hue options nếu chúng tồn tại
+                             hue_options = [opt for opt in hue_options if opt != selected_col_scatter_x and opt != selected_col_scatter_y]
+                             selected_col_scatter_hue = st.selectbox("Phân màu theo (Tùy chọn):", hue_options, key="scatter_hue", index=0) # Mặc định là None
+                        else:
+                             st.warning("Cần ít nhất 2 cột số khác nhau.")
+                             plot_type = None # Vô hiệu hóa plot nếu không đủ cột
+                    # Heatmap không cần chọn cột thêm
 
             with col_plot_display:
                 # Tạo và hiển thị biểu đồ Plotly
-                if plot_type == "Histogram" and selected_col_hist_box:
-                    fig = px.histogram(
-                        df,
-                        x=selected_col_hist_box,
-                        marginal="box", # Thêm box plot ở trên
-                        title=f"<b>Phân phối của {selected_col_hist_box}</b>",
-                        opacity=0.8,
-                        color_discrete_sequence=px.colors.qualitative.Vivid # Bảng màu sặc sỡ
-                    )
-                    fig.update_layout(bargap=0.1, title_x=0.5, xaxis_title=selected_col_hist_box, yaxis_title="Số lượng")
-                    st.plotly_chart(fig, use_container_width=True)
+                try: # Bọc trong try-except để bắt lỗi vẽ biểu đồ
+                    if plot_type == "Histogram" and selected_col_hist_box:
+                        fig = px.histogram(
+                            df,
+                            x=selected_col_hist_box,
+                            marginal="box", # Thêm box plot ở trên
+                            title=f"<b>Phân phối của {selected_col_hist_box}</b>",
+                            opacity=0.8,
+                            color_discrete_sequence=px.colors.qualitative.Vivid # Bảng màu sặc sỡ
+                        )
+                        fig.update_layout(bargap=0.1, title_x=0.5, xaxis_title=selected_col_hist_box, yaxis_title="Số lượng")
+                        st.plotly_chart(fig, use_container_width=True)
 
-                elif plot_type == "Box Plot" and selected_col_hist_box:
-                    fig = px.box(
-                        df,
-                        y=selected_col_hist_box,
-                        title=f"<b>Biểu đồ Box Plot của {selected_col_hist_box}</b>",
-                        points="all", # Hiển thị tất cả các điểm
-                        color_discrete_sequence=px.colors.qualitative.Pastel
-                    )
-                    fig.update_layout(title_x=0.5)
-                    st.plotly_chart(fig, use_container_width=True)
+                    elif plot_type == "Box Plot" and selected_col_hist_box:
+                        fig = px.box(
+                            df,
+                            y=selected_col_hist_box,
+                            title=f"<b>Biểu đồ Box Plot của {selected_col_hist_box}</b>",
+                            points="all", # Hiển thị tất cả các điểm
+                            color_discrete_sequence=px.colors.qualitative.Pastel
+                        )
+                        fig.update_layout(title_x=0.5)
+                        st.plotly_chart(fig, use_container_width=True)
 
-                elif plot_type == "Scatter Plot" and selected_col_scatter_x and selected_col_scatter_y:
-                    fig = px.scatter(
-                        df,
-                        x=selected_col_scatter_x,
-                        y=selected_col_scatter_y,
-                        color=selected_col_scatter_hue,
-                        title=f"<b>Mối quan hệ giữa {selected_col_scatter_x} và {selected_col_scatter_y}</b>",
-                        opacity=0.7,
-                        color_continuous_scale=px.colors.sequential.Viridis if selected_col_scatter_hue and df[selected_col_scatter_hue].dtype in [np.int64, np.float64] else None, # Scale màu nếu cột màu là số
-                        color_discrete_sequence=px.colors.qualitative.Bold if selected_col_scatter_hue and df[selected_col_scatter_hue].dtype not in [np.int64, np.float64] else px.colors.qualitative.Plotly # Scale màu nếu cột màu là category
-                    )
-                    fig.update_layout(title_x=0.5, xaxis_title=selected_col_scatter_x, yaxis_title=selected_col_scatter_y)
-                    st.plotly_chart(fig, use_container_width=True)
+                    elif plot_type == "Scatter Plot" and selected_col_scatter_x and selected_col_scatter_y:
+                        fig = px.scatter(
+                            df,
+                            x=selected_col_scatter_x,
+                            y=selected_col_scatter_y,
+                            color=selected_col_scatter_hue,
+                            title=f"<b>Mối quan hệ giữa {selected_col_scatter_x} và {selected_col_scatter_y}</b>",
+                            opacity=0.7,
+                            color_continuous_scale=px.colors.sequential.Viridis if selected_col_scatter_hue and df[selected_col_scatter_hue].dtype in [np.int64, np.float64] else None, # Scale màu nếu cột màu là số
+                            color_discrete_sequence=px.colors.qualitative.Bold if selected_col_scatter_hue and df[selected_col_scatter_hue].dtype not in [np.int64, np.float64] else px.colors.qualitative.Plotly # Scale màu nếu cột màu là category
+                        )
+                        fig.update_layout(title_x=0.5, xaxis_title=selected_col_scatter_x, yaxis_title=selected_col_scatter_y)
+                        st.plotly_chart(fig, use_container_width=True)
 
-                elif plot_type == "Heatmap Tương quan":
-                     if len(numeric_columns) > 1:
-                         corr = df[numeric_columns].corr()
-                         fig = go.Figure(data=go.Heatmap(
-                                z=corr.values,
-                                x=corr.columns,
-                                y=corr.columns,
-                                colorscale='RdBu', # Bảng màu đỏ-xanh dương
-                                zmin=-1, zmax=1, # Chuẩn hóa thang màu
-                                text=corr.values, # Hiển thị giá trị
-                                texttemplate="%{text:.2f}", # Định dạng giá trị
-                                hoverongaps = False))
-                         fig.update_layout(
-                             title='<b>Ma trận Tương quan Heatmap</b>',
-                             xaxis_tickangle=-45,
-                             title_x=0.5,
-                             height=600 # Tăng chiều cao heatmap
-                         )
-                         st.plotly_chart(fig, use_container_width=True)
-                         st.caption("Giá trị từ -1 đến 1. Gần 1: Tương quan dương mạnh, Gần -1: Tương quan âm mạnh, Gần 0: Ít tương quan tuyến tính.")
-                     else:
-                          st.warning("Cần ít nhất 2 cột số để vẽ heatmap tương quan.")
+                    elif plot_type == "Heatmap Tương quan":
+                        if len(numeric_columns) > 1:
+                            # Chỉ tính corr trên cột số, xử lý NaN trước khi tính corr
+                            corr = df[numeric_columns].dropna().corr()
+                            fig = go.Figure(data=go.Heatmap(
+                                    z=corr.values,
+                                    x=corr.columns,
+                                    y=corr.columns,
+                                    colorscale='RdBu', # Bảng màu đỏ-xanh dương
+                                    zmin=-1, zmax=1, # Chuẩn hóa thang màu
+                                    text=corr.values, # Hiển thị giá trị
+                                    texttemplate="%{text:.2f}", # Định dạng giá trị
+                                    hoverongaps = False))
+                            fig.update_layout(
+                                title='<b>Ma trận Tương quan Heatmap (Cột số)</b>',
+                                xaxis_tickangle=-45,
+                                title_x=0.5,
+                                height=max(400, len(numeric_columns) * 30) # Điều chỉnh chiều cao
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                            st.caption("Giá trị từ -1 đến 1. Gần 1: Tương quan dương mạnh, Gần -1: Tương quan âm mạnh, Gần 0: Ít tương quan tuyến tính.")
+                        else:
+                             st.warning("Cần ít nhất 2 cột số để vẽ heatmap tương quan.")
+                except Exception as plot_error:
+                     st.error(f"Lỗi khi vẽ biểu đồ: {plot_error}")
 
-    else:
-         st.info("👋 Chào mừng! Hãy tải lên một tệp CSV để bắt đầu hành trình khám phá dữ liệu và xây dựng mô hình.")
-         # Có thể thêm Lottie animation ở đây cho đẹp mắt khi chưa có dữ liệu
-         # import streamlit_lottie
-         # from streamlit_lottie import st_lottie
-         # try:
-         #      # Ví dụ: animation từ lottiefiles.com
-         #      # response = requests.get("URL_TO_LOTTIE_JSON")
-         #      # lottie_json = response.json()
-         #      # st_lottie(lottie_json, speed=1, reverse=False, loop=True, quality="low", height=300, key="lottie_hello")
-         #      pass
-         # except:
-         #      st.write("Không thể tải animation.")
+
+    elif not uploaded_file: # Chỉ hiển thị nếu chưa upload file gì
+        st.info("👋 Chào mừng! Hãy tải lên một tệp CSV để bắt đầu hành trình khám phá dữ liệu và xây dựng mô hình.")
+        # Có thể thêm Lottie animation ở đây
+        # try:
+        #     import requests
+        #     from streamlit_lottie import st_lottie
+        #     # Ví dụ: animation từ lottiefiles.com
+        #     # response = requests.get("URL_TO_LOTTIE_JSON")
+        #     # lottie_json = response.json()
+        #     # st_lottie(lottie_json, speed=1, reverse=False, loop=True, quality="low", height=300, key="lottie_hello")
+        # except ImportError:
+        #      st.write("Cài đặt streamlit-lottie để hiển thị animation: pip install streamlit-lottie")
+        # except Exception as e:
+        #      st.write(f"Không thể tải animation: {e}")
 
 # == Tab 2: Huấn luyện Mô hình ==
 with tab2:
-    st.markdown("### <i class='fas fa-tasks'></i> 3. Chọn Features, Target & Mô hình")
+    st.markdown("### <i class='fas fa-tasks'></i> 3. Chọn Features, Target & Mô hình", unsafe_allow_html=True)
 
     if st.session_state.df_loaded and st.session_state.df is not None:
         df = st.session_state.df
@@ -551,198 +646,310 @@ with tab2:
         col1_setup, col2_setup = st.columns(2, gap="large")
 
         with col1_setup:
-            st.markdown("#### <i class='fas fa-bullseye'></i> Features & Target")
+            st.markdown("#### <i class='fas fa-bullseye'></i> Features & Target", unsafe_allow_html=True)
             all_columns = df.columns.tolist()
+            # Cho phép chọn bất kỳ cột số nào làm target
             potential_target_cols = df.select_dtypes(include=np.number).columns.tolist()
 
             if not potential_target_cols:
-                 st.error("⛔ Không tìm thấy cột số phù hợp để làm biến mục tiêu.")
-                 st.stop()
+                st.error("⛔ Không tìm thấy cột số nào trong dữ liệu để làm biến mục tiêu (Target) cho mô hình hồi quy.")
+                # st.stop() # Không dừng hẳn, cho phép user quay lại tải file khác
+            else:
+                # Khôi phục lựa chọn cũ nếu có
+                target_index = 0
+                if st.session_state.target_column and st.session_state.target_column in potential_target_cols:
+                    target_index = potential_target_cols.index(st.session_state.target_column)
 
-            selected_target = st.selectbox("🎯 Chọn cột mục tiêu (Target - số):", potential_target_cols, key="target_select")
-            available_features = [col for col in all_columns if col != selected_target]
-            selected_features = st.multiselect("✨ Chọn các cột đặc trưng (Features):", available_features, default=available_features, key="feature_select")
+                selected_target = st.selectbox(
+                    "🎯 Chọn cột mục tiêu (Target - phải là số):",
+                     potential_target_cols,
+                     index=target_index,
+                     key="target_select"
+                 )
+                available_features = [col for col in all_columns if col != selected_target]
+
+                # Khôi phục lựa chọn feature cũ nếu có (cả số và category)
+                default_features = []
+                if st.session_state.numeric_cols_original or st.session_state.categorical_cols_original:
+                     default_features = [f for f in (st.session_state.numeric_cols_original or []) + (st.session_state.categorical_cols_original or []) if f in available_features]
+                else: # Nếu chưa có gì thì mặc định chọn tất cả trừ target
+                     default_features = available_features
+
+
+                selected_features_original = st.multiselect(
+                    "✨ Chọn các cột đặc trưng (Features):",
+                    available_features,
+                    default=default_features,
+                    key="feature_select"
+                )
 
         with col2_setup:
-            st.markdown("#### <i class='fas fa-robot'></i> Thuật toán & Tham số")
+            st.markdown("#### <i class='fas fa-robot'></i> Thuật toán & Tham số", unsafe_allow_html=True)
             model_options = ["Linear Regression", "Random Forest Regressor", "Support Vector Regressor (SVR)"]
-            selected_model = st.selectbox("🤖 Chọn thuật toán:", model_options, key="model_select")
+            selected_model_name = st.selectbox("🤖 Chọn thuật toán:", model_options, key="model_select")
 
             # Sử dụng expander cho siêu tham số
-            with st.expander(f"🛠️ Tinh chỉnh siêu tham số cho {selected_model}", expanded=False):
+            with st.expander(f"🛠️ Tinh chỉnh siêu tham số cho {selected_model_name}", expanded=False):
                 params = {}
-                if selected_model == "Random Forest Regressor":
-                    params['n_estimators'] = st.slider("Số cây (n_estimators):", 50, 1000, 150, 10, key="rf_n_estimators")
-                    max_depth_input = st.number_input("Độ sâu tối đa (max_depth, 0=none):", min_value=0, value=10, step=1, key="rf_max_depth")
+                if selected_model_name == "Random Forest Regressor":
+                    params['n_estimators'] = st.slider("Số cây (n_estimators):", 10, 1000, 100, 10, key="rf_n_estimators", help="Số lượng cây trong rừng.") # Giảm min
+                    max_depth_input = st.number_input("Độ sâu tối đa (max_depth, 0=không giới hạn):", min_value=0, value=0, step=1, key="rf_max_depth", help="Độ sâu tối đa của mỗi cây. 0 nghĩa là không giới hạn.")
                     params['max_depth'] = None if max_depth_input == 0 else max_depth_input
-                elif selected_model == "Support Vector Regressor (SVR)":
-                    params['C'] = st.slider("Tham số C:", 0.1, 20.0, 1.5, 0.1, key="svr_c")
-                    params['epsilon'] = st.slider("Epsilon:", 0.05, 1.0, 0.15, 0.01, key="svr_epsilon")
-                    params['kernel'] = st.radio("Kernel:", ['rbf', 'linear', 'poly', 'sigmoid'], index=0, key="svr_kernel", horizontal=True)
+                elif selected_model_name == "Support Vector Regressor (SVR)":
+                    params['C'] = st.slider("Tham số C (Regularization):", 0.01, 100.0, 1.0, 0.01, format="%.2f", key="svr_c", help="Nghịch đảo của cường độ điều chuẩn. Giá trị nhỏ hơn tương ứng với điều chuẩn mạnh hơn.")
+                    params['epsilon'] = st.slider("Epsilon:", 0.01, 1.0, 0.1, 0.01, format="%.2f", key="svr_epsilon", help="Xác định biên độ mà không có hình phạt nào được liên kết trong hàm mất mát.")
+                    params['kernel'] = st.radio("Kernel:", ['rbf', 'linear', 'poly', 'sigmoid'], index=0, key="svr_kernel", horizontal=True, help="Loại kernel được sử dụng trong thuật toán.")
                 else:
-                    st.info("Linear Regression cơ bản không cần tinh chỉnh nhiều.")
+                    st.info("Linear Regression cơ bản không yêu cầu tinh chỉnh siêu tham số phức tạp.")
 
         st.markdown("---")
 
         # Đặt nút huấn luyện ở giữa
         col_button_spacer1, col_button, col_button_spacer2 = st.columns([1, 1.5, 1])
         with col_button:
-            if st.button("⚡️<i class='fas fa-bolt'></i> Huấn luyện Mô hình Ngay! ⚡️", key="train_button_main"):
-                if not selected_features:
+            if st.button("⚡️ Huấn luyện Mô hình Ngay! ⚡️", key="train_button_main", use_container_width=True):
+                # Reset lỗi cũ trước khi huấn luyện
+                st.session_state.preprocessing_error = None
+                st.session_state.training_error = None
+                st.session_state.model = None # Reset model cũ
+
+                if not selected_features_original:
                     st.warning("⚠️ Vui lòng chọn ít nhất một Feature.")
                 elif not selected_target:
-                     st.warning("⚠️ Vui lòng chọn Target.")
+                    st.warning("⚠️ Vui lòng chọn Target.")
                 else:
-                    # Logic huấn luyện (có progress bar trong hàm train_model)
-                    X, y, feature_names_proc, scaler, num_orig, cat_orig = preprocess_data(df.copy(), selected_target, selected_features)
+                    with st.spinner("⚙️ Đang tiền xử lý dữ liệu..."):
+                        # Gọi hàm tiền xử lý
+                        preprocess_result = preprocess_data(df.copy(), selected_target, selected_features_original)
 
-                    if X is not None:
-                        st.session_state.scaler = scaler
-                        st.session_state.feature_names = feature_names_proc
-                        st.session_state.target_column = selected_target
-                        st.session_state.numeric_cols_original = num_orig
-                        st.session_state.categorical_cols_original = cat_orig
-
-                        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42) # Tăng test size
-                        st.write(f"📊 Kích thước tập Train: {X_train.shape} | Test: {X_test.shape}")
-
-                        # Huấn luyện (hàm này đã có spinner và progress)
-                        model = train_model(X_train, y_train, selected_model, params)
-
-                        if model:
-                            st.session_state.model = model
-                            st.balloons() # Thêm hiệu ứng bóng bay khi thành công!
-
-                            st.markdown(f"#### <i class='fas fa-check-circle'></i> Kết quả Đánh giá ({selected_model})")
-                            y_pred = model.predict(X_test)
-                            mse = mean_squared_error(y_test, y_pred)
-                            r2 = r2_score(y_test, y_pred)
-
-                            res_col1, res_col2 = st.columns(2)
-                            res_col1.metric(
-                                label="📉 Mean Squared Error (MSE)",
-                                value=f"{mse:.4f}",
-                                delta=None, # Có thể tính delta so với lần chạy trước nếu lưu lại
-                                help="Sai số bình phương trung bình, càng nhỏ càng tốt."
-                             )
-                            res_col2.metric(
-                                label="📈 R² Score",
-                                value=f"{r2:.4f}",
-                                help="Hệ số xác định, càng gần 1 càng tốt (tối đa là 1)."
-                            )
-
-                            # Plotly so sánh thực tế vs dự đoán
-                            with st.expander("🔍 Xem biểu đồ so sánh Thực tế vs. Dự đoán", expanded=False):
-                                comparison_df = pd.DataFrame({'Thực tế': y_test, 'Dự đoán': y_pred})
-                                fig_comp = px.scatter(
-                                    comparison_df, x='Thực tế', y='Dự đoán',
-                                    title='<b>So sánh Giá trị Thực tế và Dự đoán</b>',
-                                    opacity=0.6,
-                                    trendline='ols', # Thêm đường hồi quy tuyến tính OLS
-                                    trendline_color_override='red'
-                                )
-                                # Thêm đường y=x để so sánh
-                                fig_comp.add_shape(type='line', line=dict(dash='dash', color='white'),
-                                                   x0=y_test.min(), y0=y_test.min(), x1=y_test.max(), y1=y_test.max())
-                                fig_comp.update_layout(title_x=0.5)
-                                st.plotly_chart(fig_comp, use_container_width=True)
+                        # Kiểm tra kết quả tiền xử lý
+                        if isinstance(preprocess_result[0], str): # Nếu phần tử đầu là string -> lỗi
+                            st.session_state.preprocessing_error = preprocess_result[0]
+                            st.error(f"Lỗi tiền xử lý: {st.session_state.preprocessing_error}")
                         else:
-                             st.error("❌ Huấn luyện thất bại.")
-                             st.session_state.model = None
-    else:
-         st.warning("☝️ Vui lòng tải dữ liệu ở Tab 1 trước.")
+                            # Giải nén kết quả thành công
+                            X, y, feature_names_proc, scaler, num_imputer, cat_imputer, num_orig, cat_orig = preprocess_result
+                            st.session_state.preprocessing_error = None # Không có lỗi
+
+                            # Lưu các thành phần cần thiết cho dự đoán
+                            st.session_state.scaler = scaler
+                            st.session_state.numeric_imputer = num_imputer
+                            st.session_state.categorical_imputer = cat_imputer
+                            st.session_state.feature_names_processed = feature_names_proc # Tên cột sau dummies/scaling
+                            st.session_state.target_column = selected_target
+                            st.session_state.numeric_cols_original = num_orig
+                            st.session_state.categorical_cols_original = cat_orig
+
+                            # Chia dữ liệu
+                            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42) # Tăng test size
+                            st.write(f"📊 Kích thước tập Train: {X_train.shape} | Test: {X_test.shape}")
+                            st.write(f"📈 Số lượng features sau tiền xử lý: {X_train.shape[1]}")
+                            # st.write(f"Tên features sau xử lý: {st.session_state.feature_names_processed}") # Debug
+
+                    # Chỉ huấn luyện nếu tiền xử lý thành công
+                    if st.session_state.preprocessing_error is None:
+                         # Huấn luyện (hàm này đã có spinner và progress)
+                         model, training_err = train_model(X_train, y_train, selected_model_name, params)
+
+                         st.session_state.training_error = training_err
+                         st.session_state.model = model # Lưu model (có thể là None nếu lỗi)
+
+                         if st.session_state.model:
+                             # st.success(f"✅ Huấn luyện mô hình {selected_model_name} thành công!")
+                             st.balloons() # Thêm hiệu ứng bóng bay khi thành công!
+
+                             st.markdown(f"#### <i class='fas fa-check-circle'></i> Kết quả Đánh giá trên tập Test ({selected_model_name})", unsafe_allow_html=True)
+                             y_pred = st.session_state.model.predict(X_test)
+                             mse = mean_squared_error(y_test, y_pred)
+                             r2 = r2_score(y_test, y_pred)
+                             rmse = np.sqrt(mse)
+
+                             res_col1, res_col2 = st.columns(2)
+                             res_col1.metric(
+                                 label="📉 RMSE (Root Mean Squared Error)",
+                                 value=f"{rmse:.4f}",
+                                 delta=None,
+                                 help="Căn bậc hai của MSE, cùng đơn vị với target. Càng nhỏ càng tốt."
+                             )
+                             res_col2.metric(
+                                 label="📈 R² Score",
+                                 value=f"{r2:.4f}",
+                                 help="Hệ số xác định, đo lường mức độ biến thiên của target được giải thích bởi mô hình. Càng gần 1 càng tốt (tối đa là 1)."
+                             )
+
+                             # Plotly so sánh thực tế vs dự đoán
+                             with st.expander("🔍 Xem biểu đồ so sánh Thực tế vs. Dự đoán", expanded=True): # Mở rộng mặc định
+                                 comparison_df = pd.DataFrame({'Thực tế': y_test, 'Dự đoán': y_pred})
+                                 # Giới hạn số điểm vẽ nếu quá nhiều để tránh chậm
+                                 if len(comparison_df) > 1000:
+                                      comparison_df_sample = comparison_df.sample(1000, random_state=42)
+                                      plot_title = '<b>So sánh Giá trị Thực tế và Dự đoán (1000 điểm mẫu)</b>'
+                                 else:
+                                      comparison_df_sample = comparison_df
+                                      plot_title = '<b>So sánh Giá trị Thực tế và Dự đoán</b>'
+
+                                 fig_comp = px.scatter(
+                                     comparison_df_sample, x='Thực tế', y='Dự đoán',
+                                     title=plot_title,
+                                     opacity=0.6,
+                                     trendline='ols', # Thêm đường hồi quy tuyến tính OLS
+                                     trendline_color_override='red',
+                                     labels={'Thực tế': f'Giá trị Thực tế ({selected_target})', 'Dự đoán': f'Giá trị Dự đoán ({selected_target})'}
+                                 )
+                                 # Thêm đường y=x để so sánh
+                                 min_val = min(y_test.min(), y_pred.min())
+                                 max_val = max(y_test.max(), y_pred.max())
+                                 fig_comp.add_shape(type='line', line=dict(dash='dash', color='white', width=2),
+                                                    x0=min_val, y0=min_val, x1=max_val, y1=max_val)
+                                 fig_comp.update_layout(title_x=0.5)
+                                 st.plotly_chart(fig_comp, use_container_width=True)
+                                 st.caption("Đường nét đứt màu trắng là đường y=x (dự đoán hoàn hảo). Đường màu đỏ là đường xu hướng OLS.")
+
+                         # else: # Lỗi đã được hiển thị trong hàm train_model
+                         #     # st.error("❌ Huấn luyện thất bại. Vui lòng kiểm tra thông báo lỗi ở trên.")
+                         #     pass
+
+    elif st.session_state.df is None and not st.session_state.df_loaded: # Nếu chưa tải file thành công
+         st.warning("☝️ Vui lòng tải dữ liệu hợp lệ ở Tab 1 trước khi huấn luyện.")
+    # Không cần else nếu df_loaded=True nhưng df=None (đã có lỗi ở Tab 1)
 
 
 # == Tab 3: Dự đoán ==
 with tab3:
-    st.markdown("### <i class='fas fa-hat-wizard'></i> 4. Dự đoán Giá trị Mới")
+    st.markdown("### <i class='fas fa-hat-wizard'></i> 4. Dự đoán Giá trị Mới", unsafe_allow_html=True)
 
-    if st.session_state.model is not None and st.session_state.scaler is not None and st.session_state.feature_names is not None:
+    # Chỉ hiển thị form nếu đã huấn luyện model thành công và có đủ thông tin cần thiết
+    if (st.session_state.model is not None and
+        st.session_state.scaler is not None and
+        st.session_state.numeric_imputer is not None and # Cần imputer
+        st.session_state.categorical_imputer is not None and # Cần imputer
+        st.session_state.feature_names_processed is not None and
+        st.session_state.numeric_cols_original is not None and
+        st.session_state.categorical_cols_original is not None):
 
         required_original_features = st.session_state.numeric_cols_original + st.session_state.categorical_cols_original
-        st.info(f"👇 Nhập giá trị cho các đặc trưng sau: `{', '.join(required_original_features)}`")
+        st.info(f"👇 Nhập giá trị cho các đặc trưng **gốc** sau đây để dự đoán **{st.session_state.target_column}**:")
+        # st.write(f"({', '.join(required_original_features)})") # Ghi chú các cột cần nhập
 
         with st.form(key="prediction_form_styled"):
-            input_data = {}
-            input_df_cols = {}
+            input_data_raw = {} # Lưu giá trị người dùng nhập
+            input_cols_for_df = {} # Dùng để tạo DataFrame đầu vào
 
-            # Chia cột linh hoạt hơn
+            # Chia cột linh hoạt hơn cho các widget input
             total_orig_cols = len(required_original_features)
-            num_widget_cols = min(total_orig_cols, 4) # Tối đa 4 cột
-            widget_cols = st.columns(num_widget_cols)
-            current_col_index = 0
+            num_widget_cols = min(total_orig_cols, 3) # Tối đa 3 cột input trên 1 hàng
+            if num_widget_cols <= 0:
+                 st.warning("Không có feature nào được chọn để huấn luyện.")
+            else:
+                widget_cols = st.columns(num_widget_cols)
+                current_col_index = 0
 
-            # Input số
-            for col in st.session_state.numeric_cols_original:
-                with widget_cols[current_col_index % num_widget_cols]:
-                    input_data[col] = st.number_input(f"{col} <i class='fas fa-hashtag'></i>", value=0.0, format="%.5f", key=f"input_{col}", unsafe_allow_html=True)
-                    input_df_cols[col] = [input_data[col]]
-                current_col_index += 1
+                # Input số
+                for col in st.session_state.numeric_cols_original:
+                    with widget_cols[current_col_index % num_widget_cols]:
+                         # Sử dụng giá trị trung bình từ imputer làm giá trị mặc định
+                         default_val_num = 0.0
+                         try:
+                             # Tìm index của cột trong imputer
+                              col_idx_imputer = st.session_state.numeric_cols_original.index(col)
+                              if st.session_state.numeric_imputer and hasattr(st.session_state.numeric_imputer, 'statistics_'):
+                                  default_val_num = float(st.session_state.numeric_imputer.statistics_[col_idx_imputer])
+                         except Exception: # Bỏ qua lỗi nếu không tìm thấy hoặc imputer chưa fit
+                              pass
+                         input_data_raw[col] = st.number_input(
+                             f"{col} (Số)",
+                             value=default_val_num,
+                             format="%.5f", # Cho phép nhập số thập phân
+                             key=f"input_{col}",
+                             help=f"Nhập giá trị số cho {col}"
+                         )
+                         input_cols_for_df[col] = [input_data_raw[col]] # Đặt trong list để tạo df
+                    current_col_index += 1
 
-            # Input category
-            df_predict_source = st.session_state.df
-            for col in st.session_state.categorical_cols_original:
-                 with widget_cols[current_col_index % num_widget_cols]:
-                      unique_vals = [""] + df_predict_source[col].unique().astype(str).tolist()
-                      unique_vals = [val for val in unique_vals if pd.notna(val)]
-                      input_data[col] = st.selectbox(f"{col} <i class='fas fa-tag'></i>", options=unique_vals, index=0, key=f"input_{col}", help=f"Chọn một giá trị cho {col}", unsafe_allow_html=True)
-                      input_df_cols[col] = [np.nan if input_data[col] == "" else input_data[col]]
-                 current_col_index += 1
+                # Input category
+                df_predict_source = st.session_state.df # Lấy df gốc để tìm unique values
+                for col in st.session_state.categorical_cols_original:
+                    with widget_cols[current_col_index % num_widget_cols]:
+                         unique_vals = [""] + sorted(df_predict_source[col].dropna().unique().astype(str).tolist())
+                         # default_val_cat = "" # Mặc định trống
+                         # Lấy giá trị phổ biến nhất làm mặc định nếu có thể
+                         default_val_cat = ""
+                         try:
+                             col_idx_cat_imputer = st.session_state.categorical_cols_original.index(col)
+                             if st.session_state.categorical_imputer and hasattr(st.session_state.categorical_imputer, 'statistics_'):
+                                  imputed_val = st.session_state.categorical_imputer.statistics_[col_idx_cat_imputer]
+                                  if imputed_val in unique_vals: # Chỉ dùng nếu giá trị đó có trong list
+                                       default_val_cat = imputed_val
+                         except Exception:
+                              pass
 
-            # Nút Submit
-            col_form_button_spacer1, col_form_button, col_form_button_spacer2 = st.columns([1,1,1])
-            with col_form_button:
-                 submit_button = st.form_submit_button(label="<i class='fas fa-paper-plane'></i> Gửi Dự đoán")
+                         input_data_raw[col] = st.selectbox(
+                             f"{col} (Category)",
+                             options=unique_vals,
+                             index=unique_vals.index(default_val_cat) if default_val_cat in unique_vals else 0, # Chọn mặc định nếu tìm thấy, nếu không chọn ""
+                             key=f"input_{col}",
+                             help=f"Chọn một giá trị cho {col}. Để trống nếu không biết (sẽ được xử lý)."
+                         )
+                         # Nếu người dùng chọn "", coi như là NaN để imputer xử lý
+                         input_cols_for_df[col] = [np.nan if input_data_raw[col] == "" else input_data_raw[col]]
+                    current_col_index += 1
 
-        if submit_button:
-             with st.spinner("🧙‍♂️ Đang thực hiện phép màu dự đoán..."):
-                 try:
-                     input_df = pd.DataFrame(input_df_cols)
-                     # st.write("Input DataFrame:") # Debug
-                     # st.dataframe(input_df)
+                # --- Nút Submit ---
+                submitted = st.form_submit_button("🔮 Dự đoán Ngay!", use_container_width=True)
 
-                     # Xử lý NaN đơn giản cho input
-                     input_df[st.session_state.numeric_cols_original] = input_df[st.session_state.numeric_cols_original].fillna(0)
-                     input_df[st.session_state.categorical_cols_original] = input_df[st.session_state.categorical_cols_original].fillna(df_predict_source[st.session_state.categorical_cols_original].mode().iloc[0])
+                if submitted:
+                    st.session_state.last_prediction = None # Reset dự đoán cũ
+                    with st.spinner("🧠 Đang xử lý và dự đoán..."):
+                        try:
+                            # 1. Tạo DataFrame từ input (đúng thứ tự cột gốc)
+                            input_df = pd.DataFrame(input_cols_for_df, index=[0])
+                            input_df = input_df[required_original_features] # Đảm bảo đúng thứ tự
 
-                     # One-Hot Encode
-                     input_df_processed = pd.get_dummies(input_df, columns=st.session_state.categorical_cols_original, drop_first=True)
-                     # st.write("Input after dummies:") # Debug
-                     # st.dataframe(input_df_processed)
+                            # 2. Xử lý NaN bằng imputer đã fit (không cần fit lại)
+                            numeric_features_predict = [col for col in st.session_state.numeric_cols_original if col in input_df.columns]
+                            categorical_features_predict = [col for col in st.session_state.categorical_cols_original if col in input_df.columns]
 
-                     # Align columns
-                     input_df_aligned = input_df_processed.reindex(columns=st.session_state.feature_names, fill_value=0)
-                     # st.write("Input after align:") # Debug
-                     # st.dataframe(input_df_aligned)
+                            if numeric_features_predict and st.session_state.numeric_imputer:
+                                input_df[numeric_features_predict] = st.session_state.numeric_imputer.transform(input_df[numeric_features_predict])
+                            if categorical_features_predict and st.session_state.categorical_imputer:
+                                input_df[categorical_features_predict] = st.session_state.categorical_imputer.transform(input_df[categorical_features_predict])
 
-                     # Scale
-                     input_scaled = st.session_state.scaler.transform(input_df_aligned)
+                            # 3. One-Hot Encoding (phải giống hệt lúc train)
+                            input_df_processed = pd.get_dummies(input_df, columns=st.session_state.categorical_cols_original, drop_first=True)
 
-                     # Predict
-                     prediction = st.session_state.model.predict(input_scaled)
+                            # 4. Căn chỉnh cột với feature_names_processed (thêm cột thiếu, xóa cột thừa)
+                            # Các cột có trong tập train nhưng thiếu trong input -> thêm vào và gán giá trị 0 (vì đã drop_first=True)
+                            missing_cols = set(st.session_state.feature_names_processed) - set(input_df_processed.columns)
+                            for c in missing_cols:
+                                input_df_processed[c] = 0
+                            # Các cột có trong input nhưng không có trong tập train -> xóa đi
+                            extra_cols = set(input_df_processed.columns) - set(st.session_state.feature_names_processed)
+                            input_df_processed = input_df_processed.drop(columns=list(extra_cols))
 
-                 except Exception as e:
-                      st.error(f"❌ Lỗi khi dự đoán: {e}")
-                      st.exception(e) # In đầy đủ traceback để debug
-                      prediction = None # Đặt prediction là None nếu có lỗi
+                            # Đảm bảo thứ tự cột giống hệt lúc train
+                            input_df_processed = input_df_processed[st.session_state.feature_names_processed]
 
-             # Hiển thị kết quả nếu không có lỗi
-             if 'prediction' in locals() and prediction is not None:
-                  st.markdown("---")
-                  st.markdown("### <i class='fas fa-bullseye-arrow'></i> Kết quả Dự đoán:")
-                  # Sử dụng st.metric để hiển thị đẹp hơn
-                  st.metric(label=f"✨ Giá trị dự đoán cho '{st.session_state.target_column}' ✨", value=f"{prediction[0]:,.4f}")
-                  st.success("🎉 Dự đoán thành công!")
-                  # Thêm hiệu ứng tuyết rơi :D
-                  st.snow()
+                            # 5. Chuẩn hóa bằng scaler đã fit
+                            input_scaled = st.session_state.scaler.transform(input_df_processed)
 
+                            # 6. Dự đoán
+                            prediction = st.session_state.model.predict(input_scaled)
+                            st.session_state.last_prediction = prediction[0] # Lấy giá trị đầu tiên
 
-    elif not st.session_state.df_loaded:
-         st.warning("☝️ Vui lòng tải dữ liệu ở Tab 1 trước.")
-    else:
-        st.warning("⏳ Vui lòng huấn luyện mô hình ở Tab 2 trước.")
+                            # 7. Hiển thị kết quả
+                            st.success(f"✨ **Kết quả Dự đoán cho {st.session_state.target_column}:**")
+                            # Sử dụng metric để hiển thị đẹp hơn
+                            st.metric(label=f"Giá trị dự đoán ({st.session_state.target_column})", value=f"{st.session_state.last_prediction:,.2f}") # Định dạng số
 
+                        except Exception as e:
+                            st.error(f"Lỗi khi thực hiện dự đoán: {e}")
+                            st.exception(e) # In traceback để debug
 
-# --- Footer ---
-st.markdown("---")
-st.markdown("<div style='text-align: center; color: rgba(255,255,255,0.7);'> Made with <i class='fas fa-heart' style='color: red;'></i> & <i class='fas fa-brain' style='color: pink;'></i> by Gemini & You @ 2025</div>", unsafe_allow_html=True)
+    elif st.session_state.model is None and st.session_state.df_loaded: # Nếu đã load data nhưng chưa train
+         st.warning("⏳ Vui lòng huấn luyện mô hình ở Tab 2 trước khi dự đoán.")
+    elif not st.session_state.df_loaded: # Nếu chưa load data
+         st.warning("☝️ Vui lòng tải dữ liệu ở Tab 1 và huấn luyện mô hình ở Tab 2 trước.")
+
+    # Hiển thị lại kết quả dự đoán cuối cùng nếu có (ngoài form)
+    # if st.session_state.last_prediction is not None and not submitted: # Chỉ hiển thị nếu không phải vừa submit
+    #      st.info(f"Kết quả dự đoán lần cuối: {st.session_state.last_prediction:,.2f}")
