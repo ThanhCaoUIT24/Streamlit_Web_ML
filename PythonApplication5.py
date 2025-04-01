@@ -230,6 +230,47 @@ custom_css = """
          background-image: linear-gradient(to bottom, #485DA6, #00a1ba); /* Gradient cho sidebar */
      }
 
+    /* === CSS HEADER & Loại bỏ viền lạ === */
+
+    /* Loại bỏ margin/padding/border của body để tránh viền lạ */
+    body {
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        /* overflow-x: hidden; */ /* Thử thêm nếu có thanh cuộn ngang lạ */
+    }
+
+    /* Target thanh header chính */
+    header[data-testid="stHeader"] {
+        background-image: none !important;
+        background-color: #0E1117 !important; /* Giữ màu nền tối */
+        border: none !important; /* Xóa border */
+        margin: 0 !important; /* Xóa margin */
+        padding: 0 !important; /* Xóa padding */
+        box-shadow: none !important; /* Xóa shadow nếu có */
+    }
+
+    /* Target dải màu trang trí */
+    div[data-testid="stDecoration"] {
+        background-image: none !important;
+        background-color: #0E1117 !important; /* Đồng bộ màu nền tối */
+        border: none !important; /* Xóa border */
+        margin: 0 !important; /* Xóa margin */
+        padding: 0 !important; /* Xóa padding */
+        box-shadow: none !important; /* Xóa shadow nếu có */
+        height: 5px !important; /* Đặt chiều cao cố định nhỏ cho nó, hoặc thử display: none */
+        /* display: none !important; */ /* Bỏ comment để ẩn hoàn toàn nếu cần */
+    }
+
+    /* Đảm bảo các icon/link trên toolbar vẫn màu trắng */
+     header [data-testid="stToolbar"] button svg,
+     header [data-testid="stToolbar"] button span,
+     div[data-testid="stMainMenu"] button svg,
+     header [data-testid="stToolbar"] a svg,
+     header [data-testid="stToolbar"] a {
+         fill: #FFFFFF !important;
+         color: #FFFFFF !important;
+     }
 
 </style>
 """
